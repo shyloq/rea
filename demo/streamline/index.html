@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Streamline</title>
+<style>
+:root{--bg:#111;--fg:#f2f2f2;--muted:#9a9a9a;--accent:#e0573d}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,sans-serif}
+header{position:fixed;top:0;left:0;right:0;z-index:5;display:flex;align-items:center;gap:24px;padding:14px 4%;background:linear-gradient(#000c,#0000)}
+header h1{margin:0;font-size:1.5rem;color:var(--accent);letter-spacing:.08em}
+header input{margin-left:auto;background:#000a;border:1px solid #555;color:var(--fg);padding:6px 10px;border-radius:4px}
+.hero{height:70vh;min-height:420px;display:flex;flex-direction:column;justify-content:flex-end;padding:0 4% 60px;background-size:cover}
+.hero h2{font-size:clamp(2rem,6vw,4rem);margin:0 0 8px}
+.hero p{max-width:520px;color:#ddd;margin:0 0 18px}
+button{font:inherit;cursor:pointer;border:0;border-radius:4px;padding:10px 22px;margin-right:10px}
+.play{background:#fff;color:#000;font-weight:600}.info{background:#6d6d6eb3;color:#fff}
+.row{padding:0 4%;margin:20px 0}
+.row h3{margin:0 0 8px;font-size:1.15rem}
+.strip{display:flex;gap:8px;overflow-x:auto;padding:8px 0;scroll-snap-type:x proximity}
+.card{flex:0 0 220px;height:124px;border-radius:4px;padding:10px;display:flex;align-items:flex-end;font-weight:600;cursor:pointer;scroll-snap-align:start;transition:transform .2s;position:relative;background-size:cover}
+.card:hover,.card:focus{transform:scale(1.08);z-index:2;outline:2px solid #fff}
+.card .bar{position:absolute;left:0;bottom:0;height:4px;background:var(--accent)}
+#player{position:fixed;inset:0;background:#000;z-index:10;display:none}
+#player.open{display:block}
+#player video{width:100%;height:100%}
+#close{position:absolute;top:16px;left:16px;z-index:11;background:#000a;color:#fff}
+#title{position:absolute;top:22px;left:100px;z-index:11;text-shadow:0 1px 4px #000}
+#next{position:absolute;right:20px;bottom:90px;z-index:11;background:#fff;color:#000;display:none}
+#empty{padding:0 4%;color:var(--muted);display:none}
+</style>
+</head>
+<body>
+<header><h1>STREAMLINE</h1><input id="q" type="search" placeholder="Search titles" aria-label="Search"></header>
+<section class="hero" id="hero"></section>
+<main id="rows"></main>
+<p id="empty">No titles match.</p>
+<div id="player"><button id="close">← Back</button><span id="title"></span><video id="v" controls playsinline></video><div id="err" style="display:none;position:absolute;inset:0;margin:auto;height:60px;text-align:center;z-index:11">This video could not be loaded.</div><button id="next">Next episode ▸</button></div>
+<script>
+const B='https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/';
+const grad=(a,b)=>`linear-gradient(135deg,${a},${b})`;
+// Open-licensed Blender Foundation films; art is generated gradients.
+const ep=n=>{const v=document.createElement('video');return 'media/ep'+n+(v.canPlayType('video/mp4; codecs="avc1.42E01E"')?'.mp4':'.webm')};
+const CATALOG=[
+ {id:'sd1',title:'Signal Drift S1:E1 — Fractal',genre:'Original',art:grad('#e0573d','#2a0f3a'),desc:'An original demo series generated locally. Episode 1.',src:ep(1)},
+ {id:'sd2',title:'Signal Drift S1:E2 — Gradient',genre:'Original',art:grad('#17a2b8','#10203a'),desc:'An original demo series generated locally. Episode 2.',src:ep(2)},
+ {id:'sd3',title:'Signal Drift S1:E3 — Bloom',genre:'Original',art:grad('#ffb347','#102040'),desc:'An original demo series generated locally. Episode 3.',src:ep(3)},
+ {id:'bbb',title:'Big Buck Bunny',genre:'Comedy',art:grad('#2f8f4e','#1b3a2a'),desc:'A giant rabbit takes revenge on three bullying rodents.',src:B+'BigBuckBunny.mp4'},
+ {id:'sintel',title:'Sintel',genre:'Fantasy',art:grad('#8a3ffc','#1a1030'),desc:'A young woman searches for the dragon she once befriended.',src:B+'Sintel.mp4'},
+ {id:'ed',title:"Elephant's Dream",genre:'Sci-Fi',art:grad('#d98324','#3a1f0a'),desc:'Two strangers explore a surreal mechanical world.',src:B+'ElephantsDream.mp4'},
+ {id:'tos',title:'Tears of Steel',genre:'Sci-Fi',art:grad('#2a7de1','#0b1a33'),desc:'Warriors and scientists try to save the world from robots.',src:B+'TearsOfSteel.mp4'},
+];
+const store={get(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch{return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
+let progress=store.get('progress',{}); // id -> {t,d}
+const $=s=>document.querySelector(s), v=$('#v');
+function card(t){
+ const el=document.createElement('div');el.className='card';el.tabIndex=0;el.style.backgroundImage=t.art;el.textContent=t.title;
+ const p=progress[t.id];if(p&&p.d){const b=document.createElement('div');b.className='bar';b.style.width=Math.min(100,p.t/p.d*100)+'%';el.append(b)}
+ el.onclick=()=>play(t);el.onkeydown=e=>{if(e.key==='Enter')play(t)};return el;
+}
+function row(name,items){
+ if(!items.length)return null;const r=document.createElement('section');r.className='row';
+ r.innerHTML=`<h3></h3><div class="strip"></div>`;r.querySelector('h3').textContent=name;
+ items.forEach(t=>r.querySelector('.strip').append(card(t)));return r;
+}
+function render(){
+ const q=$('#q').value.trim().toLowerCase();
+ const list=CATALOG.filter(t=>!q||t.title.toLowerCase().includes(q)||t.genre.toLowerCase().includes(q));
+ const rows=$('#rows');rows.replaceChildren();
+ const cont=list.filter(t=>progress[t.id]&&progress[t.id].t>5&&progress[t.id].t<progress[t.id].d-10);
+ [row('Continue Watching',cont),row('Trending Now',list),...[...new Set(list.map(t=>t.genre))].map(g=>row(g,list.filter(t=>t.genre===g)))].forEach(r=>r&&rows.append(r));
+ $('#empty').style.display=list.length?'none':'block';
+}
+function hero(){
+ const t=CATALOG[0];const h=$('#hero');h.style.backgroundImage=`linear-gradient(#0000,#111),${t.art}`;
+ h.innerHTML='<h2></h2><p></p><div><button class="play">▶ Play</button><button class="info">More info</button></div>';
+ h.querySelector('h2').textContent=t.title;h.querySelector('p').textContent=t.desc;
+ h.querySelector('.play').onclick=()=>play(t);h.querySelector('.info').onclick=()=>alert(t.title+' · '+t.genre+'\n'+t.desc);
+}
+let cur=null;
+function play(t){
+ cur=t;$('#title').textContent=t.title;v.src=t.src;$('#player').classList.add('open');$('#next').style.display='none';
+ const p=progress[t.id];
+ v.onloadedmetadata=()=>{if(p&&p.t>5&&p.t<v.duration-10)v.currentTime=p.t};
+ $('#err').style.display='none';v.play().catch(()=>{});
+}
+function save(){if(cur&&v.duration){progress[cur.id]={t:v.currentTime,d:v.duration};store.set('progress',progress)}}
+v.ontimeupdate=()=>{if(Math.floor(v.currentTime)%5===0)save();$('#next').style.display=v.duration&&v.duration-v.currentTime<20?'block':'none'};
+function nextOf(){const i=CATALOG.indexOf(cur);return CATALOG[(i+1)%CATALOG.length]}
+$('#next').onclick=()=>{save();play(nextOf())};
+v.onerror=()=>{if(cur)$('#err').style.display='block'};
+v.onended=()=>{progress[cur.id]={t:0,d:v.duration};store.set('progress',progress);play(nextOf())};
+function close(){save();v.pause();v.removeAttribute('src');v.load();$('#player').classList.remove('open');cur=null;render()}
+$('#close').onclick=close;
+addEventListener('keydown',e=>{if(!cur)return;if(e.key==='Escape')close();if(e.key===' '&&e.target===document.body){e.preventDefault();v.paused?v.play():v.pause()}if(e.key==='f')v.requestFullscreen?.()});
+addEventListener('beforeunload',save);
+$('#q').oninput=render;
+hero();render();
+</script>
+</body>
+</html>
